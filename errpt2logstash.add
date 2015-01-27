@@ -1,0 +1,5 @@
+errnotify:
+en_pid = 0
+en_name = "errpt2logstash"
+en_persistenceflg = 1
+en_method = "/usr/local/bin/errpt2logstash.pl $1 $2 $3 $4 $4 $6 $7 $8 $9"
