@@ -15,7 +15,7 @@ chown root:system /etc/errpt2logstash.conf
 
 chmod 660 /etc/errpt2logstash.conf
 
-*** modify the configuration file -> add your logstash server and port ***
+<b>modify the configuration file (errpt2logstash.conf) -> add your logstash server and port</b>
 
 odmadd errpt2logstash.add
 
