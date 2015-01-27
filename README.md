@@ -26,19 +26,13 @@ rm /usr/local/bin/errpt2logstash.pl
 rm /etc/errpt2logstash.conf
 
 # [Example] logstash-input.conf
-input {
-
-  tcp {
-  
-    port => 5555
-    
-    type => errpt
-    
-    codec => json
-    
-  }
-  
-} 
+  input {
+    tcp {
+      port => 5555
+      type => errpt
+      codec => json
+    }
+  } 
 
 # TEST:
 Logstash Server:
