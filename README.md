@@ -8,7 +8,6 @@ chown root:system /usr/local/bin/errpt2logstash.pl
 
 chmod 750 /usr/local/bin/errpt2logstash.pl
 
-
 cp errpt2logstash.conf /etc/errpt2logstash.conf
 
 chown root:system /etc/errpt2logstash.conf
@@ -25,3 +24,23 @@ odmdelete -q 'en_name=errpt2logstash' -o errnotify
 rm /usr/local/bin/errpt2logstash.pl
 
 rm /etc/errpt2logstash.conf
+
+# [Example] logstash-input.conf
+input {
+  tcp {
+    port => 5555
+    type => errpt
+    codec => json
+  }
+} 
+
+# TEST:
+Logstash Server:
+
+/opt/logstash/bin/logstash agent -e 'input {tcp { port => "5555" codec => json }} output { stdout { codec => rubydebug }}'
+
+AIX Server:
+
+errlogger "Hello World"
+
+logger -plocal0.crit "Hello World" 
