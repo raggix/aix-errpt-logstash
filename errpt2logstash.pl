@@ -1,4 +1,3 @@
-
 #!/usr/bin/perl
 #===============================================================================
 # Script        : errpt2logstash.pl
@@ -11,9 +10,11 @@
 # History:
 #
 # <DATE>        <AUTHOR>        <REASON>
-# ----------    -------------- ------------------------------------------------
+# ----------    --------------  ------------------------------------------------
 # 2015-01-26    Ron Wellnitz    initial creation
 # 2015-01-28    Ron Wellnitz    Bugfixing, improved argument parsing
+# 2015-02-03    Ron Wellnitz    Adding errpt description field
+#                               Fixing error_id to hexadecimal integer
 #
 #
 # ToDo:
@@ -119,13 +120,6 @@ my $CONFIGFILE = "/etc/errpt2logstash.conf";
 # errnotify arguments
 my $ELEMENT;
 my %ELEMENTS;
-foreach ("errpt_sequence_number", "errpt_error_id", "errpt_class",
-         "errpt_type",            "errpt_alert_flags", "errpt_resource_name",
-         "errpt_resource_type",   "errpt_resource_class", "errpt_error_label") {
-
-  $ELEMENTS{$_} = ($#ARGV + 1) ? shift : 'unset';
-}
-
 
 # errpt output
 $ELEMENTS{message}         = "";
@@ -154,6 +148,20 @@ my $IGNORE_SYSLOG         = 0;
 #===============================================================================
 # main program
 #===============================================================================
+
+#
+# - process script arguments $1 - $9
+#
+
+foreach ("errpt_sequence_number", "errpt_error_id",       "errpt_class",
+         "errpt_type",            "errpt_alert_flags",    "errpt_resource_name",
+         "errpt_resource_type",   "errpt_resource_class", "errpt_error_label") {
+
+  $ELEMENTS{$_} = ($#ARGV + 1) ? shift : 'unset';
+  if(( "$_" eq "errpt_error_id") && ($ELEMENTS{$_} =~ /^0x[0-9a-f]+/)) {
+    (my $dummy, $ELEMENTS{$_}) = split(/0X/,uc($ELEMENTS{$_}));
+  }
+}
 
 #
 # - parse configuration file
@@ -192,6 +200,7 @@ if(!$SERVER_ADDR || !$SERVER_PORT) {
 #
 chomp($ELEMENTS{logsource} = `/usr/bin/hostname -s 2>&1`);
 
+my $DESCRIPTION_FOUND=0;
 if ($ELEMENTS{errpt_sequence_number} =~ /^\d+$/) {
   my @ERRPT_OUT = `/usr/bin/errpt -l $ELEMENTS{errpt_sequence_number} -a 2>&1`;
   foreach(@ERRPT_OUT) {
@@ -199,7 +208,9 @@ if ($ELEMENTS{errpt_sequence_number} =~ /^\d+$/) {
     $_ =~ s/[\t]/\\t/g;
     $_ =~ s/(['"])/\\\$1/g;
     #$_ =~ s/[^a-zA-z0-9:\/+-=?!.,;_#()<> ]/ /g;
+    $ELEMENTS{errpt_description} = "$_" if ($DESCRIPTION_FOUND);
     $ELEMENTS{message} .= "$_\\r\\n";
+    $DESCRIPTION_FOUND = ($_ =~ /^Description$/) ? 1 : 0;
   }
 } else {
   $ELEMENTS{message} .= "invalid sequence number\\r\\n";
@@ -225,7 +236,7 @@ $ELEMENTS{program} = $ELEMENTS{errpt_error_label};
 # - build and send JSON string
 # - close connection and exit
 #
-my $SOCKET = IO::Socket::INET->new(Proto => "tcp", Timeout => "2",
+my $SOCKET = IO::Socket::INET->new(Proto => "tcp", Timeout  => "2",
   PeerAddr => $SERVER_ADDR, PeerPort => $SERVER_PORT)
   or die "\nUnable to connect to ${SERVER_ADDR}:${SERVER_PORT}!\n\n";
 
