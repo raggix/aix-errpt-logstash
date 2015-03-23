@@ -1,5 +1,5 @@
-# Build RPM (example)
-prepare source direcotory
+# Build RPM (example for AIX and Version 0.3)
+prepare source directory
 ```
 ~/errpt2logstash
 ~/errpt2logstash/errpt2logstash.conf
