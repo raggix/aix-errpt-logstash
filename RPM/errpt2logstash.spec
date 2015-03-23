@@ -69,6 +69,6 @@ cd `dirname $RPM_BUILD_ROOT`
 %attr(660,root,root) /etc/errpt2logstash.conf
 
 %changelog
-* Fri Feb 05 2015 Ron Wellnitz
+* Mon Mar 23 2015 Ron Wellnitz
 - 0.2 Second Release
 - 0.3 Adjusted comments, small improvements 
