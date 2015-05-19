@@ -15,8 +15,12 @@ BuildArch: ppc
 %description
 Forward (and transform) ERRPT events to a logstash server.
 
-%preun
-/usr/bin/odmdelete -q 'en_name=errpt2logstash' -o errnotify >/dev/null 2>&1
+%pre
+# If the first argument to %pre is 1, the RPM operation is an initial installation.
+# If the argument to %pre is 2, the operation is an upgrade from an existing version to a new one.
+if [[ -f /etc/errpt2logstash.conf ]];then
+  mv /etc/errpt2logstash.conf /etc/errpt2logstash.conf.rpmsave
+fi
 
 %prep
 
@@ -47,7 +51,23 @@ mv ${RPM_BUILD_ROOT}/errpt2logstash.conf ${RPM_BUILD_ROOT}/etc
 install -c /usr/local/bin -M 0750 ${RPM_BUILD_ROOT}/usr/local/bin/errpt2logstash.pl
 install -c /etc -M 0660 ${RPM_BUILD_ROOT}/etc/errpt2logstash.conf
 
+%clean
+cd `dirname $RPM_BUILD_ROOT`
+[ "$RPM_BUILD_ROOT" != "/" ] && rm -rf $RPM_BUILD_ROOT
+
+%files
+# list files owned by the package here
+%defattr(-,root,root)
+%attr(750,root,root) /usr/local/bin/errpt2logstash.pl
+%attr(660,root,root) /etc/errpt2logstash.conf
+
 %post
+# handle Upgrade -> keep current Configuration
+if [[ $1 -eq 2 && -f /etc/errpt2logstash.conf.rpmsave ]];then
+  mv /etc/errpt2logstash.conf /etc/errpt2logstash.conf.rpmnew
+  mv /etc/errpt2logstash.conf.rpmsave /etc/errpt2logstash.conf
+fi
+
 # the post section is where you can run commands after the rpm is installed.
 /usr/bin/odmdelete -q 'en_name=errpt2logstash' -o errnotify >/dev/null 2>&1
 /usr/bin/odmadd <<EOF
@@ -58,15 +78,12 @@ en_persistenceflg = 1
 en_method = "/usr/local/bin/errpt2logstash.pl \$1 \$2 \$3 \$4 \$4 \$6 \$7 \$8 \$9"
 EOF
 
-%clean
-cd `dirname $RPM_BUILD_ROOT`
-[ "$RPM_BUILD_ROOT" != "/" ] && rm -rf $RPM_BUILD_ROOT
-
-%files
-# list files owned by the package here
-%defattr(-,root,root)
-%attr(750,root,root) /usr/local/bin/errpt2logstash.pl
-%attr(660,root,root) /etc/errpt2logstash.conf
+%postun
+# If the first argument to %preun and %postun is 1, the action is an upgrade.
+# If the first argument to %preun and %postun is 0, the action is uninstallation.
+if [ "$1" = "0" ];then
+  /usr/bin/odmdelete -q 'en_name=errpt2logstash' -o errnotify >/dev/null 2>&1
+fi
 
 %changelog
 * Mon Mar 23 2015 Ron Wellnitz
