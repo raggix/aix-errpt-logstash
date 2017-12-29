@@ -17,6 +17,6 @@ rpm -ba errpt2logstash.spec
 ```
 install RPM
 ```
-cp /opt/freeware/src/packages/RPMS/noarch/errpt2logstash*.ppc.rpm .
+cp /opt/freeware/src/packages/RPMS/ppc/errpt2logstash*.ppc.rpm .
 rpm -iv errpt2logstash*.ppc.rpm 
 ```
