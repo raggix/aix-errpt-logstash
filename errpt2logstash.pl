@@ -6,97 +6,23 @@
 #
 # Author        : Ron Wellnitz
 #
-# Version       : 0.3
+# Version       : 0.4
 #-------------------------------------------------------------------------------
 #
 # History:
 #
 # <DATE>        <AUTHOR>        <REASON>
-# ----------    -------------- ------------------------------------------------
-# 2015-01-26    Ron Wellnitz    initial creation
+# ----------    --------------  ------------------------------------------------
+# 2015-01-26    Ron Wellnitz    Initial creation
 # 2015-01-28    Ron Wellnitz    Bugfixing, improved argument parsing
-# 2015-02-03    Ron Wellnitz    Adding errpt description field
+# 2015-02-03    Ron Wellnitz    Add errpt description field
 #                               Fixing error_id to hexadecimal integer
 # 2015-03-23    Ron Wellnitz    Adjusted comments, small improvements
-#
-#
-#-------------------------------------------------------------------------------
-#
-#-------------------------------------------------------------------------------
-# install:
-#   cp errpt2logstash.pl /usr/local/bin/errpt2logstash.pl
-#   chown root:system /usr/local/bin/errpt2logstash.pl
-#   chmod 750 /usr/local/bin/errpt2logstash.pl
-#
-#   cp errpt2logstash.conf /etc/errpt2logstash.conf
-#   chown root:system /etc/errpt2logstash.conf
-#   chmod 660 /etc/errpt2logstash.conf
-#
-# * ------------------------------------------------------------------
-# * modify the configuration file -> set logstash server name and port
-# * ------------------------------------------------------------------
-#
-#   odmadd errpt2logstash.add
-#
-# uninstall:
-#   odmdelete -q 'en_name=errpt2logstash' -o errnotify
-#   rm /usr/local/bin/errpt2logstash.pl
-#   rm /etc/errpt2logstash.conf
+# 2017-12-29    Ron Wellnitz    Add support for script output to a logfile
+#                               Extend configuration file check
 #
 #-------------------------------------------------------------------------------
-# errnotify argument description
-#-------------------------------------------------------------------------------
-# $1    Sequence number from the error log entry
-# $2    Error ID from the error log entry
-# $3    Class from the error log entry
-# $4    Type from the error log entry
-# $5    Alert flags value from the error log entry
-# $6    Resource name from the error log entry
-# $7    Resource type from the error log entry
-# $8    Resource class from the error log entry
-# $9    Error label from the error log entry
 #
-#-------------------------------------------------------------------------------
-# [Example] errpt2logstash.add
-#-------------------------------------------------------------------------------
-# >errnotify:
-# >en_pid = 0
-# >en_name = "errpt2logstash"
-# >en_persistenceflg = 1
-# >en_method = "/usr/local/bin/errpt2logstash.pl $1 $2 $3 $4 $4 $6 $7 $8 $9"
-#
-#-------------------------------------------------------------------------------
-# [Example] /etc/errpt2logstash.conf
-#-------------------------------------------------------------------------------
-# >logstash_server_name=localhost
-# >logstash_server_port=5555
-# ># ignore redirected messages from AIX Syslog [MESSAGE REDIRECTED FROM SYSLOG]
-# ># usefull if syslog is already sends messages to a logstahs server
-# ># 0 = false | 1 = true
-# >ignore_syslog_messages=0
-#
-#-------------------------------------------------------------------------------
-# [Example] logstash-input.conf
-#-------------------------------------------------------------------------------
-# >input {
-# >  tcp {
-# >    port => 5555
-# >    type => errpt
-# >    codec => json
-# >  }
-# >}
-#-------------------------------------------------------------------------------
-# [Test]
-#-------------------------------------------------------------------------------
-# Logstash Server:
-#   /opt/logstash/bin/logstash agent -e 'input {tcp { port => "5555"
-#     codec => json }} output { stdout { codec => rubydebug }}'
-#
-# AIX Server:
-#   /usr/local/bin/errpt2logstash.pl
-#   errlogger "Hello World"
-#   logger -plocal0.crit "Hello World"
-#-------------------------------------------------------------------------------
 #===============================================================================
 use strict;
 use warnings;
@@ -104,6 +30,7 @@ use POSIX;
 use Socket;
 use IO::Socket;
 use IO::Handle;
+use Switch;
 
 # turn on autoflush
 $|++;
@@ -112,8 +39,9 @@ $|++;
 # user variables
 #===============================================================================
 
-# logstash server configuration file
 my $CONFIGFILE = "/etc/errpt2logstash.conf";
+my $LOGFILE = "/var/log/errpt2logstash.log";
+my $MAXLOGCOUNT = 4000;
 
 #===============================================================================
 # script variables
@@ -142,18 +70,44 @@ $ERROR_CLASS{S}           = "Software";
 $ERROR_CLASS{O}           = "Operator Notice";
 $ERROR_CLASS{U}           = "Undetermined";
 
-# initial user configuration variables
+# initial user configuration variables (Defaults)
 my $SERVER_ADDR           = "localhost";
 my $SERVER_PORT           = "5555";
 my $IGNORE_SYSLOG         = 0;
+my $LOG_ENABLED           = 1;
+
+#===============================================================================
+# functions
+#===============================================================================
+
+# handle output to STDOUT and logfile
+sub message_handler {
+  my $TYPE = shift;
+  my $MESSAGE = shift;
+  my $TIMESTAMP = strftime "%x %X", localtime;
+  printf LOGF "[$TIMESTAMP] %-10s $MESSAGE\n", "[$TYPE]" if $LOG_ENABLED;
+  switch($TYPE) {
+    case "ERROR" {
+      print STDERR "\n$TYPE: $MESSAGE\n\n";
+      close(LOGF) if $LOG_ENABLED;
+      exit(1);
+    }
+    case /INFO|WARNING/ {
+      print STDOUT "\n$TYPE: $MESSAGE\n\n";
+    }
+    else {
+      print STDOUT "\n$MESSAGE\n\n";
+    }
+  }
+}
 
 #===============================================================================
 # main program
 #===============================================================================
 
 # process script arguments $1 - $9
-foreach ("errpt_sequence_number", "errpt_error_id", "errpt_class",
-         "errpt_type",            "errpt_alert_flags", "errpt_resource_name",
+foreach ("errpt_sequence_number", "errpt_error_id",       "errpt_class",
+         "errpt_type",            "errpt_alert_flags",    "errpt_resource_name",
          "errpt_resource_type",   "errpt_resource_class", "errpt_error_label") {
 
   $ELEMENTS{$_} = ($#ARGV + 1) ? shift : 'unset';
@@ -162,9 +116,56 @@ foreach ("errpt_sequence_number", "errpt_error_id", "errpt_class",
   }
 }
 
+# touch logfile if necessary
+# if logfile is not accessable go ahead without logging
+if( ! -f $LOGFILE) {
+  if(open(LOGF,'>',"$LOGFILE")) {
+    close(LOGF);
+  } else {
+    $LOG_ENABLED = 0;
+    message_handler("WARNING","Unable to open Logfile [$LOGFILE]: $!");
+  }
+}
+
+# logfile handling incl. cleanup
+if($LOG_ENABLED) {
+  if(open(LOGF,'<',"$LOGFILE")) {
+    flock(LOGF, 1);
+    my @LOGFA = <LOGF>;
+    close(LOGF);
+
+    if($#LOGFA > $MAXLOGCOUNT) {
+      # if max is reached the content of logfile will reduced to the half of max - avoid cleanup every call
+      if(open(LOGF,'+<',"$LOGFILE")) {
+        flock(LOGF, 2);
+        # clear file
+        seek(LOGF, 0, 0);
+        truncate(LOGF, 0);
+        # print last half of old content to file
+        print LOGF @LOGFA[floor($#LOGFA/2)..$#LOGFA];
+      } else {
+        $LOG_ENABLED = 0;
+        message_handler("WARNING","Unable to open Logfile [$LOGFILE]: $!");
+      }
+    } else {
+      # just append to logfile
+      undef @LOGFA;
+      if(!open(LOGF,'>>',"$LOGFILE")) {
+        $LOG_ENABLED = 0;
+        message_handler("WARNING","Unable to open Logfile [$LOGFILE]: $!");
+      }
+    }
+  } else {
+    $LOG_ENABLED = 0;
+    message_handler("WARNING","Unable to open Logfile [$LOGFILE]: $!");
+  }
+}
+
+
 # parse configuration file
-open(FILE,'<',$CONFIGFILE)
-  or die "\nERROR:\tUnable to open configuration file [$CONFIGFILE]: $!\n";
+open(FILE,'<',"$CONFIGFILE")
+  or message_handler("ERROR","Unable to open configuration file [$CONFIGFILE]: $!");
+
 while(<FILE>) {
    chomp($_);
    if ($_ =~ /logstash_server_name/) {
@@ -176,19 +177,29 @@ while(<FILE>) {
    if ($_ =~ /ignore_syslog_messages/) {
       (my $dummy,$IGNORE_SYSLOG) = split(/=/,$_);
    }
+   if ($_ =~ /enable_logging/) {
+      (my $dummy,$LOG_ENABLED) = split(/=/,$_);
+   }
 }
 close(FILE);
 
-# if set, ignore syslog messages -> script end
-if ($IGNORE_SYSLOG && $ELEMENTS{errpt_error_label} eq "SYSLOG") {
-  exit(0);
-}
-
 # check for misconfigurations (e.g. empty config file)
 if(!$SERVER_ADDR || !$SERVER_PORT || $SERVER_PORT !~ /^[0-9]+$/) {
-  print "\nERROR:\tInvalid Server configuration in file [$CONFIGFILE]\n";
-  print "\tServer: [$SERVER_ADDR]\n\tPort: [$SERVER_PORT]\n";
-  exit(1);
+  message_handler("ERROR", "Invalid Server [$SERVER_ADDR] and/or Port [$SERVER_PORT] in configuration file [$CONFIGFILE]!");
+}
+
+if($IGNORE_SYSLOG !~ /^[0-1]$/) {
+  message_handler("ERROR", "Invalid value [$IGNORE_SYSLOG] for <ignore_syslog_messages> in configuration file [$CONFIGFILE]!");
+}
+
+if($LOG_ENABLED !~ /^[0-1]$/) {
+  message_handler("ERROR", "Invalid value [$LOG_ENABLED] for <enable_logging> in configuration file [$CONFIGFILE]!");
+}
+
+# if set "ignore syslog messages" to true this script ends
+if ($IGNORE_SYSLOG && $ELEMENTS{errpt_error_label} eq "SYSLOG") {
+  close(LOGF) if $LOG_ENABLED;
+  exit(0);
 }
 
 # read hostname and the full errpt entry (description)
@@ -236,9 +247,9 @@ else {
 $ELEMENTS{program} = $ELEMENTS{errpt_error_label};
 
 # open tcp connection to the logstash server
-my $SOCKET = IO::Socket::INET->new(Proto => "tcp", Timeout => "2",
+my $SOCKET = IO::Socket::INET->new(Proto => "tcp", Timeout  => "2",
   PeerAddr => $SERVER_ADDR, PeerPort => $SERVER_PORT)
-  or die "\nERROR:\tUnable to connect to [${SERVER_ADDR}:${SERVER_PORT}]: $!\n";
+  or message_handler("ERROR","Unable to connect to [${SERVER_ADDR}:${SERVER_PORT}]: $!");
 
 # build and send JSON string
 my $JSON_STRING = "{";
@@ -246,9 +257,14 @@ for $ELEMENT ( sort keys %ELEMENTS ) {
   $JSON_STRING .= "\"$ELEMENT\": \"$ELEMENTS{$ELEMENT}\"," ;
 }
 $JSON_STRING  = substr($JSON_STRING,0,(length($JSON_STRING)-1));
+
+# if logging mode is set, also print the message to the logfile (for debugging)
+message_handler("INFO", "Send [$JSON_STRING] to [${SERVER_ADDR}:${SERVER_PORT}].") if ($LOG_ENABLED);
+
 $JSON_STRING .= "}\n";
 print $SOCKET $JSON_STRING;
 
 # close connection and exit
 $SOCKET->close();
-exit(0); 
+close(LOGF) if $LOG_ENABLED;
+exit(0);
